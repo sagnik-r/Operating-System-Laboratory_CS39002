@@ -1,0 +1,96 @@
+﻿Assignment 5
+Group 11
+Sagnik Roy 18CS10063
+Debajyoti Kar 18CS10011
+
+
+Basic Design:
+
+
+1. Process Implementation:
+In the process implementation, the following data structures were used:
+1. struct job:
+        int proc_id: Store the process id of the producer
+        int prod_num: Store the producer number
+        int priority: Store the priority of the job
+        int comp_time: Store the computation time
+        int job_id: Store the job ID of the job
+2. struct shared_memory:
+        job priority_q[PQ_SIZE]: The priority queue to store the jobs
+        int job_created: Number of jobs created
+        int job_completed: Number of jobs completed
+        int curr_size: Store the current number of elements in the priority queue
+
+        pthread_mutex_t mutex: Mutex lock to prevent race coditions
+
+Functions:
+        shared_memory *create_mem: To create the shared memory
+        job create_job: To create a new job
+        job remove_job: To remove a job from the priority queue
+        void insert_job: To insert a new job into the priority queue
+        void producer_generate_jon: The function producer calls to create jobs
+        void consumer_finish_job: The function consumers call to finish jobs
+Implementation and Algorithms:
+We first create a shared memory using shmget and attach it to address space of the parent using shmat. 
+Then we fork the required number of child processes (both producer and consumer). 
+Each process calls its respective function and does the work assigned to it. 
+The producer process will create a job and wait for a random time of 1-4 seconds, then insert it to the priority queue. 
+The consumer similarly waits for a random interval of time between 0 and 3 seconds and then extracts the 
+highest priority job from the priority queue and waits for the time duration defined in its computation time. 
+In the main(parent) process, it will check if all the jobs have been created and completed. If yes, it will terminate all the children processes.
+ We have used the SIGTERM call followed by the waitpid() call. It basically tells the child to exit and 
+then waits for it to exit using the waitpid() call. We avoided use of SIGKILL as SIGTERM allows a process to 
+terminate safely and perform required clean_up work before termination.
+Ref: https://stackoverflow.com/questions/690415/in-what-order-should-i-send-signals-to-gracefully-shutdown-processes?rq=1
+Also the time of execution is maintained by using the high_resolution_clock in std::chrono.
+Ref (Method 2): https://levelup.gitconnected.com/8-ways-to-measure-execution-time-in-c-c-48634458d0f9
+
+2. Thread Implementation:
+In thread implementation following data structures were used:
+1. struct job:
+        pthread_t thrd_id: Store the thread id of the producer
+        int prod_num: Store the producer number
+        int priority: Store the priority of the job
+        int comp_time: Store the computation time
+        int job_id: Store the job ID of the job
+2. struct shared_memory:
+        job priority_q[PQ_SIZE]: The priority queue to store the jobs
+        int job_created: Number of jobs created
+        int job_completed: Number of jobs completed
+        int curr_size: Store the current number of elements in the priority queue
+        int jobs: Store the total number of jobs to be created and completed
+
+        There is a change in the struct shared_memory from the previous problem in the form of the addition of int jobs 
+as for a process we could send it as a parameter to the function being called for each producer and consumer. 
+However for threads thread_create() allows to send only a single parameter. To send multiple parameters, we would 
+either have to define a separate struct for the parameter or as we did, include it in struct shared_memory.
+
+Also we add shared_memory *sm and pthread_mutex_t mutex as global variables as for threads, global variables are accessible
+ across all threads and the mutex helps to prevent race conditions during concurrent updation of shared variables.
+Functions:
+        job create_job: To create a new job
+        job remove_job: To remove a job from the priority queue
+        void insert_job: To insert a new job into the priority queue
+        void *producer_generate_jon: The function associated with producer threads
+        void *consumer_finish_job: The function associated with consumer threads
+Implementation and Algorithms:
+The basic framework of the implementation remains same as the one in processes. However here we do not have to create a 
+shared memory explicitly as the threads already have access to the global shared_memory *sm. So the corresponding function has also been removed. 
+Each thread resides in its own function. The producer threads produces jobs and inserts them in the priority queue and 
+the consumer threads retrieves the highest priority job and then waits for comp_time seconds. Each increments the job_created and job_completed accordingly. 
+However there is a change in the way we generate the random numbers associated with every job. 
+We cannot use standard random number generator as it is not thread safe as mentioned in its manpage. 
+So we create another independent seed on each thread using std::random_device.
+Ref: https://stackoverflow.com/questions/29465758/correct-way-to-use-rand-r-for-multithreaded-programs-in-c-c
+
+After all the required number of jobs have been created and completed, the main() then checks if job_created=job_completed=jobs
+ and then terminates the threads using pthread_cancel(). 
+
+Thus the differences are:
+   * Type of shared memory: 
+For processes, it is obtained using shmget call whereas for threads it is simply a global variable shared across threads.
+   * Removed function shared_memory *create_mem() as threads dont need explicit shared memory segment to be created.
+   * Changes in the struct shared_memory as already explained
+   * Changes in struct job where we have pthread_t thrd_id in thread implementation and int proc_id in process implementation.
+   * Difference in the generation of random numbers associated with every job in a thread safe manner in the case of thread implementation.
+   * Initialization of the mutex locks. For processes the mutex attribute have to be initialized using pthread_mutexattr_init and then we have to setrobust as PTHREAD_MUTEX_STALLED and setpshared as PTHREAD_PROCESS_SHARED. For threads it is just simple initialization using pthread_mutex_init.
